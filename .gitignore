@@ -1,0 +1,16 @@
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+.env
+*.local
+
+.idea/
+.vscode/
+*.iml
+*.log
+
+load/results.json
+
+.DS_Store
+Thumbs.db
