@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: shortener
       POSTGRES_USER: shortener
-      POSTGRES_PASSWORD: shortener
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shortener}
     ports:
       - "5432:5432"
     healthcheck:
@@ -22,6 +22,6 @@ services:
       STORE: postgres
       DATABASE_URL: "jdbc:postgresql://db:5432/shortener"
       DATABASE_USER: shortener
-      DATABASE_PASSWORD: shortener
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-shortener}
     ports:
       - "8080:8080"
