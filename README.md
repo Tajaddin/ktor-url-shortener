@@ -46,7 +46,16 @@ Role categories unlocked: **Backend-Kotlin**, JVM backend, microservices.
 
 Kotlin + Ktor + coroutines is the modern JVM alternative to Spring. This repo backs the "Kotlin / Ktor" resume line with a real service, a pluggable persistence layer, and a load-measured redirect path. (It also substitutes for an iOS sample, which cannot be built on a non-macOS host.)
 
-## Run it
+## How to run
+
+Prerequisites: JDK 21+ (the included Gradle wrapper handles the rest); Docker optional for the Postgres compose stack.
+
+```bash
+./gradlew test                      # 28 unit + integration tests (in-memory + H2)
+./gradlew run                       # ws://localhost:8080, in-memory store
+python load/load_probe.py --base http://localhost:8080 \
+       --requests 8000 --concurrency 50   # reproduces the redirect hero
+```
 
 ### In-memory (zero setup)
 
