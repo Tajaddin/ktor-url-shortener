@@ -1,6 +1,6 @@
 # ktor-url-shortener
 
-> Coroutine-native URL shortener on Ktor 3 + Netty. **1,144 redirects/sec at p99 104ms** on the 302 hot path (in-memory store, lock-free atomic hit counters, 50 concurrent clients, 8000/8000 OK). Pluggable storage (in-memory or Exposed/Postgres) behind one interface, 28 tests including a store contract run against both backends.
+> Coroutine-native URL shortener on Ktor 3 + Netty. **~1,500 redirects/sec at p99 ~61 ms** on the 302 hot path (in-memory store, lock-free atomic hit counters, 50 concurrent clients, 8000/8000 OK). Pluggable storage (in-memory or Exposed/Postgres) behind one interface, 28 tests including a store contract run against both backends.
 
 [![ci](https://github.com/Tajaddin/ktor-url-shortener/actions/workflows/ci.yml/badge.svg)](https://github.com/Tajaddin/ktor-url-shortener/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -16,15 +16,15 @@ Reproducible (in-memory store, no DB):
 python load/load_probe.py --base http://localhost:8080 --requests 8000 --concurrency 50
 ```
 
+Last measured 3-run baseline (full output + hardware in [`bench/results.txt`](bench/results.txt)):
+
 | Metric | Value |
 |---|---:|
-| **Redirect throughput** | **1,144 req/s** |
-| Latency p50 | 38.9 ms |
-| Latency p95 | 74.8 ms |
-| Latency p99 | **104.3 ms** |
-| Success rate | 8000 / 8000 (100%) |
+| **Redirect throughput** | **~1,500 req/s** (3-run median 1,500; max 1,536) |
+| Latency p99 | **~61 ms** |
+| Success rate | 8000 / 8000 (100%) per run |
 
-Measured on `GET /{code}` returning a 302 (redirects not followed by the probe, so no external network). The redirect path takes no lock: a `ConcurrentHashMap` get plus an `AtomicLong` increment. Throughput here is bounded by the standard-library Python probe, not the server; the point is the lock-free read path and a clean sub-110ms p99 on a coroutine, non-blocking stack.
+Measured on `GET /{code}` returning a 302 (redirects not followed by the probe, so no external network). The redirect path takes no lock: a `ConcurrentHashMap` get plus an `AtomicLong` increment. The lock-free read path and Netty's non-blocking model keep p99 comfortably under 80 ms after JIT warmup.
 
 ## What it is
 

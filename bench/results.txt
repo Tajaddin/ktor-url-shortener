@@ -1,0 +1,64 @@
+# ktor-url-shortener hero-number benchmark
+timestamp:  2026-05-23T01:30-04:00
+hardware:   Intel i7-10875H 8c/16t @ 2.3GHz; 32 GB RAM; Windows 11
+runtime:    JVM (Eclipse Temurin 21) — Ktor 3 + Netty, in-memory store
+server:     ./gradlew installDist && ./build/install/ktor-url-shortener/bin/ktor-url-shortener
+load:       python load/load_probe.py --base http://localhost:8080 --requests 8000 --concurrency 50
+runs:       3 consecutive (GET /{code} 302 redirect hot path, no-follow)
+
+## Summary
+median throughput: 1,500 rps  (run 3)
+median p99:        61.51 ms   (run 3)
+max throughput:    1,536 rps  (run 2)
+Previously claimed: 1,144 rps p99 104ms — README bumped UP to median (~1,500) since this hardware over-performs the original baseline.
+
+## Raw runs
+
+=== run 1 ===
+{
+  "endpoint": "GET /{code} -> 302 redirect (in-memory store)",
+  "requests_ok": 8000,
+  "requests_total": 8000,
+  "concurrency": 50,
+  "wall_seconds": 6.83,
+  "throughput_rps": 1171.3,
+  "latency_ms": {
+    "p50": 39.84,
+    "p95": 68.36,
+    "p99": 81.75,
+    "max": 131.89,
+    "mean": 41.38
+  }
+}
+=== run 2 ===
+{
+  "endpoint": "GET /{code} -> 302 redirect (in-memory store)",
+  "requests_ok": 8000,
+  "requests_total": 8000,
+  "concurrency": 50,
+  "wall_seconds": 5.208,
+  "throughput_rps": 1536.0,
+  "latency_ms": {
+    "p50": 30.56,
+    "p95": 48.41,
+    "p99": 59.04,
+    "max": 101.31,
+    "mean": 31.4
+  }
+}
+=== run 3 ===
+{
+  "endpoint": "GET /{code} -> 302 redirect (in-memory store)",
+  "requests_ok": 8000,
+  "requests_total": 8000,
+  "concurrency": 50,
+  "wall_seconds": 5.335,
+  "throughput_rps": 1499.6,
+  "latency_ms": {
+    "p50": 31.11,
+    "p95": 50.12,
+    "p99": 61.51,
+    "max": 102.24,
+    "mean": 32.15
+  }
+}
