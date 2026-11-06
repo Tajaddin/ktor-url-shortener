@@ -1,6 +1,6 @@
 # ktor-url-shortener
 
-> Coroutine-native URL shortener on Ktor 3 + Netty. **~1,500 redirects/sec at p99 ~61 ms** on the 302 hot path (in-memory store, lock-free atomic hit counters, 50 concurrent clients, 8000/8000 OK). Pluggable storage (in-memory or Exposed/Postgres) behind one interface, 34 tests including a store contract run against both backends.
+> Coroutine-native URL shortener on Ktor 3 + Netty. **~1,500 redirects/sec at p99 ~61 ms** on the 302 hot path (in-memory store, lock-free atomic hit counters, 50 concurrent clients, 8000/8000 OK). Pluggable storage (in-memory or Exposed/Postgres) behind one interface, 44 tests including a store contract run against both backends.
 
 [![ci](https://github.com/Tajaddin/ktor-url-shortener/actions/workflows/ci.yml/badge.svg)](https://github.com/Tajaddin/ktor-url-shortener/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -35,7 +35,7 @@ A URL shortener that demonstrates idiomatic Kotlin + Ktor:
 | HTTP | Ktor 3 on Netty, coroutine-native handlers, `MapGroup`-style routing |
 | Serialization | kotlinx.serialization JSON via Ktor ContentNegotiation |
 | Codec | Base62 short-code encoder/decoder (URL-safe, round-trip tested) |
-| Storage | `LinkStore` interface with two impls: `InMemoryLinkStore` (lock-free hot path) and `ExposedLinkStore` (Exposed + HikariCP over H2 / Postgres) |
+| Storage | `LinkStore` interface with two impls: `InMemoryLinkStore` (lock-free hot path) and `ExposedLinkStore` (Exposed + HikariCP over H2 / Postgres; codes from a database sequence, paging done in SQL) |
 | Hot path | Redirect = map get + atomic hit increment, no transaction, no lock |
 | Errors | `StatusPages` maps domain exceptions to 400 / 409 JSON; anything else is logged and returns a generic 500 |
 | Validation | Scheme allow-list (http/https), length cap, custom-code regex |
@@ -51,7 +51,7 @@ Kotlin + Ktor + coroutines is the modern JVM alternative to Spring. This repo ba
 Prerequisites: JDK 21+ (the included Gradle wrapper handles the rest); Docker optional for the Postgres compose stack.
 
 ```bash
-./gradlew test                      # 34 unit + integration tests (in-memory + H2)
+./gradlew test                      # 44 unit + integration tests (in-memory + H2)
 ./gradlew run                       # ws://localhost:8080, in-memory store
 python load/load_probe.py --base http://localhost:8080 \
        --requests 8000 --concurrency 50   # reproduces the redirect hero
@@ -110,11 +110,11 @@ Switch stores at runtime with `STORE=postgres|h2|memory` (default memory).
 ## Testing
 
 ```bash
-./gradlew test     # 34 tests on JDK 21
+./gradlew test     # 44 tests on JDK 21
 ```
 
 - **ShortCodeTest** (5): base62 encode/decode round trip, url-safety, distinctness, invalid-char rejection, custom-code validation.
-- **LinkStoreContractTest** (9, run against BOTH `InMemoryLinkStore` and `ExposedLinkStore`/H2 = 18 executions): create/resolve, hit counting, get-does-not-count, custom code, duplicate-code conflict, missing resolve, delete, delete with another owner's token, list.
+- **LinkStoreContractTest** (14, run against BOTH `InMemoryLinkStore` and `ExposedLinkStore`/H2 = 28 executions): create/resolve, hit counting, get-does-not-count, custom code, duplicate-code conflict, missing resolve, delete, delete with another owner's token, list, paging without gaps or repeats, deleted codes never reused, generated codes stepping over claimed custom codes, 200 concurrent creates with distinct codes, one winner when 16 threads race for the same custom code.
 - **ApplicationTest** (11): full Ktor `testApplication` HTTP flow — health, create+302 redirect with `Location`, custom-code + hit reporting, duplicate 409, invalid-url 400, unknown-code 404, delete needing the owner token (401 / 403 / 204), listing needing the admin key, malformed-body 400, 500s that do not echo internal messages.
 
 One contract run against both stores guarantees the in-memory and SQL backends behave identically.

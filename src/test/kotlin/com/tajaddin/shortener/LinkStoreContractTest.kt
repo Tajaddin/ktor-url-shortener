@@ -4,10 +4,16 @@ import com.tajaddin.shortener.store.DeleteResult
 import com.tajaddin.shortener.store.ExposedLinkStore
 import com.tajaddin.shortener.store.InMemoryLinkStore
 import com.tajaddin.shortener.store.LinkStore
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -85,6 +91,57 @@ abstract class LinkStoreContractTest {
         create("https://b.com", "b")
         val codes = store.list(0, 20).map { it.code }.toSet()
         assertTrue(codes.containsAll(setOf("a", "b")))
+    }
+
+    @Test
+    fun `list pages newest first without gaps or repeats`() {
+        val created = (1..5).map { create("https://example.com/$it").code }
+        val paged = listOf(store.list(0, 2), store.list(2, 2), store.list(4, 2)).flatten().map { it.code }
+        assertEquals(created.reversed(), paged)
+    }
+
+    @Test
+    fun `deleted codes are never handed out again`() {
+        val first = create("https://a.com")
+        store.delete(first.code, owner)
+        assertNotEquals(first.code, create("https://b.com").code)
+    }
+
+    @Test
+    fun `generated codes skip codes already claimed as custom`() {
+        // Claim a block of codes the generator will reach, so it has to step over them.
+        val claimed = (1010L..1019L).map { ShortCode.encode(it) }
+        claimed.forEach { create("https://claimed.com/$it", it) }
+
+        val generated = create("https://new.com")
+        assertFalse(generated.code in claimed)
+        assertEquals("https://new.com", store.resolve(generated.code))
+        claimed.forEach { assertEquals("https://claimed.com/$it", store.resolve(it)) }
+    }
+
+    @Test
+    fun `concurrent creates all succeed with distinct codes`() {
+        val codes = concurrently(200) { create("https://example.com/$it").code }
+        assertEquals(200, codes.map { it.getOrThrow() }.toSet().size)
+    }
+
+    @Test
+    fun `concurrent creates of one custom code have exactly one winner`() {
+        val results = concurrently(16) { create("https://example.com/$it", "race") }
+        assertEquals(1, results.count { it.isSuccess })
+        results.filter { it.isFailure }.forEach { assertIs<CodeTakenException>(it.exceptionOrNull()) }
+    }
+
+    private fun <T> concurrently(n: Int, task: (Int) -> T): List<Result<T>> {
+        val pool = Executors.newFixedThreadPool(8)
+        try {
+            val start = CountDownLatch(1)
+            val futures = (1..n).map { i -> pool.submit<T> { start.await(); task(i) } }
+            start.countDown()
+            return futures.map { f -> runCatching { f.get() }.recoverCatching { throw (it as ExecutionException).cause!! } }
+        } finally {
+            pool.shutdown()
+        }
     }
 }
 

@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong
 class InMemoryLinkStore : LinkStore {
 
     private class Record(
+        val id: Long,
         val code: String,
         val target: String,
         val createdAtEpochMs: Long,
@@ -27,7 +28,7 @@ class InMemoryLinkStore : LinkStore {
     override fun create(target: String, customCode: String?, ownerTokenHash: String): LinkResponse {
         val now = System.currentTimeMillis()
         if (customCode != null) {
-            val rec = Record(customCode, target, now, ownerTokenHash)
+            val rec = Record(idSeq.getAndIncrement(), customCode, target, now, ownerTokenHash)
             if (byCode.putIfAbsent(customCode, rec) != null) {
                 throw CodeTakenException(customCode)
             }
@@ -36,9 +37,9 @@ class InMemoryLinkStore : LinkStore {
         // Generate from a monotonic id; retry on the rare collision with a
         // previously-claimed custom code.
         while (true) {
-            val code = ShortCode.encode(idSeq.getAndIncrement())
-            val rec = Record(code, target, now, ownerTokenHash)
-            if (byCode.putIfAbsent(code, rec) == null) {
+            val id = idSeq.getAndIncrement()
+            val rec = Record(id, ShortCode.encode(id), target, now, ownerTokenHash)
+            if (byCode.putIfAbsent(rec.code, rec) == null) {
                 return rec.toResponse()
             }
         }
@@ -54,7 +55,7 @@ class InMemoryLinkStore : LinkStore {
 
     override fun list(offset: Int, limit: Int): List<LinkResponse> =
         byCode.values
-            .sortedByDescending { it.createdAtEpochMs }
+            .sortedByDescending { it.id }
             .drop(offset)
             .take(limit)
             .map { it.toResponse() }
