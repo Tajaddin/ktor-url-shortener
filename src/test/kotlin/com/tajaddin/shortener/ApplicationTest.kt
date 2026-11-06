@@ -1,6 +1,7 @@
 package com.tajaddin.shortener
 
 import com.tajaddin.shortener.store.InMemoryLinkStore
+import com.tajaddin.shortener.store.LinkStore
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.bearerAuth
@@ -130,6 +131,27 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.OK, listed.status)
         assertTrue(listed.bodyAsText().contains("\"listed\""), listed.bodyAsText())
         assertFalse(listed.bodyAsText().contains("ownerToken"), listed.bodyAsText())
+    }
+
+    @Test
+    fun `internal errors do not leak their message`() = testApplication {
+        val broken = object : LinkStore by InMemoryLinkStore() {
+            override fun get(code: String): LinkResponse? = error("SELECT target FROM links WHERE code = 'x'")
+        }
+        application { module(broken) }
+        val resp = client.get("/api/links/x")
+        assertEquals(HttpStatusCode.InternalServerError, resp.status)
+        assertEquals("""{"error":"internal error"}""", resp.bodyAsText())
+    }
+
+    @Test
+    fun `malformed body returns 400`() = appTest { client ->
+        val resp = client.post("/api/links") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"nope":1}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, resp.status)
+        assertFalse(resp.bodyAsText().contains("CreateLinkRequest"), resp.bodyAsText())
     }
 
     @Test
