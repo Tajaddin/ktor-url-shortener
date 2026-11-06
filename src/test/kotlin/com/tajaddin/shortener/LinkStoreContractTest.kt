@@ -1,5 +1,6 @@
 package com.tajaddin.shortener
 
+import com.tajaddin.shortener.store.DeleteResult
 import com.tajaddin.shortener.store.ExposedLinkStore
 import com.tajaddin.shortener.store.InMemoryLinkStore
 import com.tajaddin.shortener.store.LinkStore
@@ -7,6 +8,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -18,16 +20,20 @@ abstract class LinkStoreContractTest {
 
     abstract val store: LinkStore
 
+    private val owner = OwnerToken.hash("owner-token")
+
+    private fun create(target: String, code: String? = null) = store.create(target, code, owner)
+
     @Test
     fun `create generates a code and resolves to target`() {
-        val link = store.create("https://example.com", null)
+        val link = create("https://example.com")
         assertTrue(link.code.isNotEmpty())
         assertEquals("https://example.com", store.resolve(link.code))
     }
 
     @Test
     fun `resolve increments hit count`() {
-        val link = store.create("https://example.com/page", null)
+        val link = create("https://example.com/page")
         store.resolve(link.code)
         store.resolve(link.code)
         assertEquals(2, store.get(link.code)!!.hits)
@@ -35,22 +41,22 @@ abstract class LinkStoreContractTest {
 
     @Test
     fun `get does not count a hit`() {
-        val link = store.create("https://example.com", null)
+        val link = create("https://example.com")
         store.get(link.code)
         assertEquals(0, store.get(link.code)!!.hits)
     }
 
     @Test
     fun `custom code is honored`() {
-        val link = store.create("https://example.com", "promo")
+        val link = create("https://example.com", "promo")
         assertEquals("promo", link.code)
         assertEquals("https://example.com", store.resolve("promo"))
     }
 
     @Test
     fun `duplicate custom code throws`() {
-        store.create("https://a.com", "dup")
-        assertFailsWith<CodeTakenException> { store.create("https://b.com", "dup") }
+        create("https://a.com", "dup")
+        assertFailsWith<CodeTakenException> { create("https://b.com", "dup") }
     }
 
     @Test
@@ -60,21 +66,26 @@ abstract class LinkStoreContractTest {
 
     @Test
     fun `delete removes the link`() {
-        val link = store.create("https://example.com", null)
-        assertTrue(store.delete(link.code))
-        assertFalse(store.delete(link.code))
+        val link = create("https://example.com")
+        assertEquals(DeleteResult.DELETED, store.delete(link.code, owner))
+        assertEquals(DeleteResult.NOT_FOUND, store.delete(link.code, owner))
         assertNull(store.get(link.code))
     }
 
     @Test
+    fun `delete with another owner's token keeps the link`() {
+        val link = create("https://example.com")
+        assertEquals(DeleteResult.NOT_OWNER, store.delete(link.code, OwnerToken.hash("someone-else")))
+        assertNotNull(store.get(link.code))
+    }
+
+    @Test
     fun `list returns created links`() {
-        store.create("https://a.com", "a")
-        store.create("https://b.com", "b")
+        create("https://a.com", "a")
+        create("https://b.com", "b")
         val codes = store.list(0, 20).map { it.code }.toSet()
         assertTrue(codes.containsAll(setOf("a", "b")))
     }
-
-    private fun assertFalse(b: Boolean) = assertEquals(false, b)
 }
 
 class InMemoryLinkStoreTest : LinkStoreContractTest() {

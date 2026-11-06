@@ -16,6 +16,16 @@ data class LinkResponse(
     val createdAtEpochMs: Long,
 )
 
+/** Returned only by create: [ownerToken] is shown once and is required to delete the link. */
+@Serializable
+data class CreatedLinkResponse(
+    val code: String,
+    val target: String,
+    val hits: Long,
+    val createdAtEpochMs: Long,
+    val ownerToken: String,
+)
+
 @Serializable
 data class PagedLinks(
     val items: List<LinkResponse>,

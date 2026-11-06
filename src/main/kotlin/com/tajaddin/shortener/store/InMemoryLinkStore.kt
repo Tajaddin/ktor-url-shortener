@@ -17,16 +17,17 @@ class InMemoryLinkStore : LinkStore {
         val code: String,
         val target: String,
         val createdAtEpochMs: Long,
+        val ownerTokenHash: String,
         val hits: AtomicLong = AtomicLong(0),
     )
 
     private val byCode = ConcurrentHashMap<String, Record>()
     private val idSeq = AtomicLong(1000)
 
-    override fun create(target: String, customCode: String?): LinkResponse {
+    override fun create(target: String, customCode: String?, ownerTokenHash: String): LinkResponse {
         val now = System.currentTimeMillis()
         if (customCode != null) {
-            val rec = Record(customCode, target, now)
+            val rec = Record(customCode, target, now, ownerTokenHash)
             if (byCode.putIfAbsent(customCode, rec) != null) {
                 throw CodeTakenException(customCode)
             }
@@ -36,7 +37,7 @@ class InMemoryLinkStore : LinkStore {
         // previously-claimed custom code.
         while (true) {
             val code = ShortCode.encode(idSeq.getAndIncrement())
-            val rec = Record(code, target, now)
+            val rec = Record(code, target, now, ownerTokenHash)
             if (byCode.putIfAbsent(code, rec) == null) {
                 return rec.toResponse()
             }
@@ -58,7 +59,11 @@ class InMemoryLinkStore : LinkStore {
             .take(limit)
             .map { it.toResponse() }
 
-    override fun delete(code: String): Boolean = byCode.remove(code) != null
+    override fun delete(code: String, ownerTokenHash: String): DeleteResult {
+        val rec = byCode[code] ?: return DeleteResult.NOT_FOUND
+        if (rec.ownerTokenHash != ownerTokenHash) return DeleteResult.NOT_OWNER
+        return if (byCode.remove(code, rec)) DeleteResult.DELETED else DeleteResult.NOT_FOUND
+    }
 
     private fun Record.toResponse() =
         LinkResponse(code = code, target = target, hits = hits.get(), createdAtEpochMs = createdAtEpochMs)

@@ -12,6 +12,7 @@ import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -29,6 +30,7 @@ class ExposedLinkStore private constructor(private val db: Database) : LinkStore
         val target = varchar("target", 2048)
         val hits = long("hits").default(0)
         val createdAt = long("created_at")
+        val ownerTokenHash = varchar("owner_token_hash", 64)
         override val primaryKey = PrimaryKey(code)
     }
 
@@ -36,7 +38,7 @@ class ExposedLinkStore private constructor(private val db: Database) : LinkStore
         transaction(db) { SchemaUtils.create(Links) }
     }
 
-    override fun create(target: String, customCode: String?): LinkResponse = transaction(db) {
+    override fun create(target: String, customCode: String?, ownerTokenHash: String): LinkResponse = transaction(db) {
         val now = System.currentTimeMillis()
         if (customCode != null) {
             if (Links.selectAll().where { Links.code eq customCode }.empty().not()) {
@@ -46,6 +48,7 @@ class ExposedLinkStore private constructor(private val db: Database) : LinkStore
                 it[code] = customCode
                 it[Links.target] = target
                 it[createdAt] = now
+                it[Links.ownerTokenHash] = ownerTokenHash
             }
             return@transaction LinkResponse(customCode, target, 0, now)
         }
@@ -59,6 +62,7 @@ class ExposedLinkStore private constructor(private val db: Database) : LinkStore
                     it[Links.code] = code
                     it[Links.target] = target
                     it[createdAt] = now
+                    it[Links.ownerTokenHash] = ownerTokenHash
                 }
                 result = LinkResponse(code, target, 0, now)
             } else {
@@ -88,8 +92,13 @@ class ExposedLinkStore private constructor(private val db: Database) : LinkStore
             .take(limit)
     }
 
-    override fun delete(code: String): Boolean = transaction(db) {
-        Links.deleteWhere { Links.code eq code } > 0
+    override fun delete(code: String, ownerTokenHash: String): DeleteResult = transaction(db) {
+        val deleted = Links.deleteWhere { (Links.code eq code) and (Links.ownerTokenHash eq ownerTokenHash) }
+        when {
+            deleted > 0 -> DeleteResult.DELETED
+            Links.selectAll().where { Links.code eq code }.empty() -> DeleteResult.NOT_FOUND
+            else -> DeleteResult.NOT_OWNER
+        }
     }
 
     private fun org.jetbrains.exposed.sql.ResultRow.toResponse() = LinkResponse(
