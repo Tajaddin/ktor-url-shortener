@@ -1,7 +1,10 @@
 package com.tajaddin.shortener
 
 import com.tajaddin.shortener.store.InMemoryLinkStore
+import com.tajaddin.shortener.store.LinkStore
+import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -15,6 +18,7 @@ import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ApplicationTest {
@@ -93,12 +97,66 @@ class ApplicationTest {
     }
 
     @Test
-    fun `delete then 404`() = appTest { client ->
-        client.post("/api/links") {
+    fun `delete needs the owner token returned on create`() = appTest { client ->
+        val created = client.post("/api/links") {
             contentType(ContentType.Application.Json)
             setBody("""{"url":"https://example.com","code":"gone"}""")
-        }
-        assertEquals(HttpStatusCode.NoContent, client.delete("/api/links/gone").status)
+        }.body<CreatedLinkResponse>()
+        assertTrue(created.ownerToken.length >= 32)
+
+        assertEquals(HttpStatusCode.Unauthorized, client.delete("/api/links/gone").status)
+        val stranger = client.post("/api/links") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"https://example.com/other"}""")
+        }.body<CreatedLinkResponse>()
+        assertEquals(HttpStatusCode.Forbidden, client.delete("/api/links/gone") { bearerAuth(stranger.ownerToken) }.status)
+        assertEquals(HttpStatusCode.OK, client.get("/api/links/gone").status)
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/links/gone") { bearerAuth(created.ownerToken) }.status)
         assertEquals(HttpStatusCode.NotFound, client.get("/api/links/gone").status)
+        assertEquals(HttpStatusCode.NotFound, client.delete("/api/links/gone") { bearerAuth(created.ownerToken) }.status)
+    }
+
+    @Test
+    fun `listing needs the admin key`() = testApplication {
+        application { module(InMemoryLinkStore(), adminKey = "test-admin-key") }
+        client.post("/api/links") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"https://example.com","code":"listed"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/links").status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/links") { bearerAuth("wrong-key") }.status)
+
+        val listed = client.get("/api/links") { bearerAuth("test-admin-key") }
+        assertEquals(HttpStatusCode.OK, listed.status)
+        assertTrue(listed.bodyAsText().contains("\"listed\""), listed.bodyAsText())
+        assertFalse(listed.bodyAsText().contains("ownerToken"), listed.bodyAsText())
+    }
+
+    @Test
+    fun `internal errors do not leak their message`() = testApplication {
+        val broken = object : LinkStore by InMemoryLinkStore() {
+            override fun get(code: String): LinkResponse? = error("SELECT target FROM links WHERE code = 'x'")
+        }
+        application { module(broken) }
+        val resp = client.get("/api/links/x")
+        assertEquals(HttpStatusCode.InternalServerError, resp.status)
+        assertEquals("""{"error":"internal error"}""", resp.bodyAsText())
+    }
+
+    @Test
+    fun `malformed body returns 400`() = appTest { client ->
+        val resp = client.post("/api/links") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"nope":1}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, resp.status)
+        assertFalse(resp.bodyAsText().contains("CreateLinkRequest"), resp.bodyAsText())
+    }
+
+    @Test
+    fun `listing is refused when no admin key is configured`() = testApplication {
+        application { module(InMemoryLinkStore(), adminKey = null) }
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/links") { bearerAuth("anything") }.status)
     }
 }

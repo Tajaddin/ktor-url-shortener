@@ -14,19 +14,21 @@ import java.util.concurrent.atomic.AtomicLong
 class InMemoryLinkStore : LinkStore {
 
     private class Record(
+        val id: Long,
         val code: String,
         val target: String,
         val createdAtEpochMs: Long,
+        val ownerTokenHash: String,
         val hits: AtomicLong = AtomicLong(0),
     )
 
     private val byCode = ConcurrentHashMap<String, Record>()
     private val idSeq = AtomicLong(1000)
 
-    override fun create(target: String, customCode: String?): LinkResponse {
+    override fun create(target: String, customCode: String?, ownerTokenHash: String): LinkResponse {
         val now = System.currentTimeMillis()
         if (customCode != null) {
-            val rec = Record(customCode, target, now)
+            val rec = Record(idSeq.getAndIncrement(), customCode, target, now, ownerTokenHash)
             if (byCode.putIfAbsent(customCode, rec) != null) {
                 throw CodeTakenException(customCode)
             }
@@ -35,9 +37,9 @@ class InMemoryLinkStore : LinkStore {
         // Generate from a monotonic id; retry on the rare collision with a
         // previously-claimed custom code.
         while (true) {
-            val code = ShortCode.encode(idSeq.getAndIncrement())
-            val rec = Record(code, target, now)
-            if (byCode.putIfAbsent(code, rec) == null) {
+            val id = idSeq.getAndIncrement()
+            val rec = Record(id, ShortCode.encode(id), target, now, ownerTokenHash)
+            if (byCode.putIfAbsent(rec.code, rec) == null) {
                 return rec.toResponse()
             }
         }
@@ -53,12 +55,16 @@ class InMemoryLinkStore : LinkStore {
 
     override fun list(offset: Int, limit: Int): List<LinkResponse> =
         byCode.values
-            .sortedByDescending { it.createdAtEpochMs }
+            .sortedByDescending { it.id }
             .drop(offset)
             .take(limit)
             .map { it.toResponse() }
 
-    override fun delete(code: String): Boolean = byCode.remove(code) != null
+    override fun delete(code: String, ownerTokenHash: String): DeleteResult {
+        val rec = byCode[code] ?: return DeleteResult.NOT_FOUND
+        if (rec.ownerTokenHash != ownerTokenHash) return DeleteResult.NOT_OWNER
+        return if (byCode.remove(code, rec)) DeleteResult.DELETED else DeleteResult.NOT_FOUND
+    }
 
     private fun Record.toResponse() =
         LinkResponse(code = code, target = target, hits = hits.get(), createdAtEpochMs = createdAtEpochMs)

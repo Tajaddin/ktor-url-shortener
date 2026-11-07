@@ -23,5 +23,6 @@ services:
       DATABASE_URL: "jdbc:postgresql://db:5432/shortener"
       DATABASE_USER: shortener
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-shortener}
+      ADMIN_KEY: ${ADMIN_KEY:-}
     ports:
       - "8080:8080"

@@ -10,10 +10,11 @@ import com.tajaddin.shortener.LinkResponse
  */
 interface LinkStore {
     /**
-     * Create a link for [target]. If [customCode] is given it must be unique;
-     * otherwise a base62 code is generated. Returns the created link.
+     * Create a link for [target], owned by whoever holds the token hashing to
+     * [ownerTokenHash]. If [customCode] is given it must be unique; otherwise a
+     * base62 code is generated. Returns the created link.
      */
-    fun create(target: String, customCode: String?): LinkResponse
+    fun create(target: String, customCode: String?, ownerTokenHash: String): LinkResponse
 
     /** Resolve [code] to its target URL and increment the hit counter. */
     fun resolve(code: String): String?
@@ -24,6 +25,8 @@ interface LinkStore {
     /** List links, newest first. */
     fun list(offset: Int, limit: Int): List<LinkResponse>
 
-    /** Delete a link. Returns true if it existed. */
-    fun delete(code: String): Boolean
+    /** Delete a link if [ownerTokenHash] matches the one it was created with. */
+    fun delete(code: String, ownerTokenHash: String): DeleteResult
 }
+
+enum class DeleteResult { DELETED, NOT_FOUND, NOT_OWNER }

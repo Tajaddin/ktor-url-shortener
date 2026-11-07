@@ -6,6 +6,7 @@ import com.tajaddin.shortener.store.LinkStore
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
+import io.ktor.server.application.log
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
@@ -22,13 +23,18 @@ fun main() {
 /**
  * Wire the store from env: STORE=postgres uses Exposed over DATABASE_URL,
  * anything else (default) uses the in-memory store. The store is injectable
- * so tests pass their own.
+ * so tests pass their own. ADMIN_KEY unlocks GET /api/links; there is no
+ * default, so without it listing is refused.
  */
-fun Application.module(store: LinkStore = storeFromEnv()) {
+fun Application.module(
+    store: LinkStore = storeFromEnv(),
+    adminKey: String? = System.getenv("ADMIN_KEY")?.takeIf { it.isNotBlank() },
+) {
+    if (adminKey == null) log.warn("ADMIN_KEY is not set; GET /api/links will refuse every request")
     install(ContentNegotiation) { json() }
     install(CallLogging) { level = Level.INFO }
     configureStatusPages()
-    configureRouting(store)
+    configureRouting(store, adminKey)
 }
 
 private fun storeFromEnv(): LinkStore {
